@@ -10,12 +10,13 @@ object DexyToken {
   val lpNFT = "7a0f96f3bdbd2731df58941c62e69fc5e9750ebb5780ae67d4d76528cd8109ae" // TODO replace with actual
   val bankNFT = "f7ef73c4a4ab91b84bb0a2905108d534114472ec057be3a57a9dfc9b1fbd85c1" // TODO replace with actual
   val arbitrageMintNFT = "361A3A5250655368566D597133743677397A24432646294A404D635166546A57" // TODO replace with actual
+  val trackingNFT = "261A3A5250655368566D597133743677397A24432646294A404D635166546A57" // TODO replace with actual
 
   val dexyUSDToken = "f9e5ce5aa0d95f5d54a7bc89c46730d9662397067250aa18a0039631c0f5b809" // TODO replace with actual
   val LPToken = "adfd114c8b145dd758248c9dadf818927da3a7cd56bbe4129ba053d1ce0cbc30" // TODO replace with actual
 }
 
-case class DexyAddresses(bankAddress: ErgoAddress, arbitrageMintAddress: ErgoAddress, freeMintAddress: ErgoAddress, lpAddress: ErgoAddress, interventionAddress: ErgoAddress)
+case class DexyAddresses(bankAddress: ErgoAddress, arbitrageMintAddress: ErgoAddress, freeMintAddress: ErgoAddress, lpAddress: ErgoAddress, trackingAddress: ErgoAddress, interventionAddress: ErgoAddress)
 
 object DexyContracts {
   var dexyAddresses: DexyAddresses = _
@@ -26,27 +27,29 @@ object DexyContracts {
        |  //   tokens(0): bankNFT identifying the box
        |  //   tokens(1): dexyUSD tokens to be emitted
        |
-       |  // Usually bank box will be spent as follows
-       |
+       |  // Bank box will be spent as follows
        |  //   Arbitrage Mint
        |  //   Input         |  Output         |   Data-Input
-       |  // -------------------------------------
-       |  // 0 Bank          |  Bank           |   Oracle
-       |  // 1 ArbitrageMint |  ArbitrageMint  |   LP
+       |  // ------------------------------------------------
+       |  // 0 ArbitrageMint |  ArbitrageMint  |   Oracle
+       |  // 1 Bank          |  Bank           |   LP
        |
        |  //   Free Mint
        |  //   Input    |  Output   |   Data-Input
        |  // -------------------------------------
-       |  // 0 Bank     |  Bank     |   Oracle
-       |  // 1 FreeMint |  FreeMit  |   LP
+       |  // 0 FreeMint |  FreeMint |   Oracle
+       |  // 1 Bank     |  Bank     |   LP
        |
        |  //   Intervention
-       |  //   Input    |  Output   |   Data-Input
-       |  // -------------------------------------
-       |  // 0 LP       |  LP       |   Oracle
-       |  // 1 Bank     |  Bank     |
+       |  //   Input         |  Output        |   Data-Input
+       |  // -----------------------------------------------
+       |  // 0 LP            |  LP            |   Oracle
+       |  // 1 Bank          |  Bank          |
+       |  // 2 Intervention  |  Intervention  |
        |
-       |  val selfOutIndex = getVar[Int](0).get
+       |  val selfOutIndex = 1        // 2nd output is self copy
+       |  val mintInIndex = 0         // 1st input is mint or LP box
+       |  val interventionInIndex = 2 // 3rd input is intervention box
        |
        |  val interventionNFT = interventionNFTId // to identify intervention box for future use
        |  val freeMintNFT = freeMintNFTId
@@ -57,10 +60,10 @@ object DexyContracts {
        |                     selfOut.propositionBytes == SELF.propositionBytes && // script preserved
        |                     selfOut.tokens(1)._1 == SELF.tokens(1)._1 // dexyUSD tokenId preserved
        |
-       |  val validMint = INPUTS(1).tokens(0)._1 == freeMintNFT ||
-       |                  INPUTS(1).tokens(0)._1 == arbitrageMintNFT
+       |  val validMint = INPUTS(mintInIndex).tokens(0)._1 == freeMintNFT ||
+       |                  INPUTS(mintInIndex).tokens(0)._1 == arbitrageMintNFT
        |
-       |  val validIntervention = INPUTS(2).tokens(0)._1 == interventionNFT
+       |  val validIntervention = INPUTS(interventionInIndex).tokens(0)._1 == interventionNFT
        |
        |  sigmaProp(validSelfOut && (validMint || validIntervention))
        |}
@@ -68,7 +71,7 @@ object DexyContracts {
 
   // arbitrage mint box
   private lazy val arbitrageMintScript =
-    s"""{ // ToDo: Add fee
+    s"""{
        |
        |  // this box: (arbitrage-mint box)
        |  //   tokens(0): Arbitrage-mint NFT
@@ -76,18 +79,33 @@ object DexyContracts {
        |  //   R4: (Int) height at which counter will reset
        |  //   R5: (Long) remaining stablecoins available to be purchased before counter is reset
        |
-       |  val oracleNFT = oracleNFTId
+       |  // Arbitrage Mint box will be spent as follows
+       |  //   Arbitrage Mint
+       |  //   Input         |  Output         |   Data-Input
+       |  // ------------------------------------------------
+       |  // 0 ArbitrageMint |  ArbitrageMint  |   Oracle
+       |  // 1 Bank          |  Bank           |   LP
+       |
+       |  val bankInIndex = 1
+       |  val selfOutIndex = 0
+       |  val bankOutIndex = 1
+       |  val oracleBoxIndex = 0
+       |  val lpBoxIndex = 1
+       |
+       |  val oracleNFT = oracleNFTId // to identify oracle pool box
        |  val bankNFT = bankNFTId
        |  val lpNFT = lpNFTId
        |  val T_arb = 30 // 30 blocks = 1 hour
        |  val thresholdPercent = 101 // 101% or more value (of LP in terms of OraclePool) will trigger action
        |
-       |  val oracleBox = CONTEXT.dataInputs(0) // oracle-pool (v1 and v2) box containing rate in R4
-       |  val lpBox = CONTEXT.dataInputs(1)
-       |  val bankBoxIn = INPUTS(0)
+       |  val feeNum = 5
+       |  val feeDenom = 1000
+       |  // actual fee ratio is feeNum / feeDenom
+       |  // example if feeNum = 5 and feeDenom = 1000 then fee = 0.005 = 0.5 %
        |
-       |  val selfOutIndex = getVar[Int](0).get
-       |  val bankOutIndex = getVar[Int](1).get
+       |  val oracleBox = CONTEXT.dataInputs(oracleBoxIndex) // oracle-pool (v1 and v2) box containing rate in R4
+       |  val lpBox = CONTEXT.dataInputs(lpBoxIndex)
+       |  val bankBoxIn = INPUTS(bankInIndex)
        |
        |  val selfOut = OUTPUTS(selfOutIndex)
        |  val bankBoxOut = OUTPUTS(bankOutIndex)
@@ -99,7 +117,9 @@ object DexyContracts {
        |
        |  val isCounterReset = HEIGHT > selfInR4
        |
-       |  val oracleRate = oracleBox.R4[Long].get // can assume always > 0 (ref oracle pool contracts) NanoErgs per USD
+       |  val oracleRateWithoutFee = oracleBox.R4[Long].get // can assume always > 0 (ref oracle pool contracts) NanoErgs per USD
+       |  val oracleRate = oracleRateWithoutFee * (feeNum + feeDenom) / feeDenom
+       |
        |  val lpReservesX = lpBox.value
        |  val lpReservesY = lpBox.tokens(2)._2 // dexyReserves
        |  val lpRate = lpReservesX / lpReservesY
@@ -149,17 +169,32 @@ object DexyContracts {
        |  //   R4: (Int) height at which counter will reset
        |  //   R5: (Long) remaining stablecoins available to be purchased before counter is reset
        |
+       |  //   Free Mint box will be spent as follows:
+       |  //   Free Mint
+       |  //   Input    |  Output   |   Data-Input
+       |  // -------------------------------------
+       |  // 0 FreeMint |  FreeMint |   Oracle
+       |  // 1 Bank     |  Bank     |   LP
+       |
+       |  val bankInIndex = 1
+       |  val selfOutIndex = 0
+       |  val bankOutIndex = 1
+       |  val oracleBoxIndex = 0
+       |  val lpBoxIndex = 1
+       |
        |  val oracleNFT = oracleNFTId // to identify oracle pool box
        |  val bankNFT = bankNFTId
        |  val lpNFT = lpNFTId
        |  val t_free = 100
        |
-       |  val oracleBox = CONTEXT.dataInputs(0) // oracle-pool (v1 and v2) box containing rate in R4
-       |  val lpBox = CONTEXT.dataInputs(1)
-       |  val bankBoxIn = INPUTS(0)
+       |  val feeNum = 10
+       |  val feeDenom = 1000
+       |  // actual fee ratio is feeNum / feeDenom
+       |  // example if feeNum = 10 and feeDenom = 1000 then fee = 0.01 = 1 %
        |
-       |  val selfOutIndex = getVar[Int](0).get
-       |  val bankOutIndex = getVar[Int](1).get
+       |  val oracleBox = CONTEXT.dataInputs(oracleBoxIndex) // oracle-pool (v1 and v2) box containing rate in R4
+       |  val lpBox = CONTEXT.dataInputs(lpBoxIndex)
+       |  val bankBoxIn = INPUTS(bankInIndex)
        |
        |  val selfOut = OUTPUTS(selfOutIndex)
        |  val bankBoxOut = OUTPUTS(bankOutIndex)
@@ -171,7 +206,9 @@ object DexyContracts {
        |
        |  val isCounterReset = HEIGHT > selfInR4
        |
-       |  val oracleRate = oracleBox.R4[Long].get // can assume always > 0 (ref oracle pool contracts) NanoErgs per USD
+       |  val oracleRateWithoutFee = oracleBox.R4[Long].get // can assume always > 0 (ref oracle pool contracts) NanoErgs per USD
+       |  val oracleRate = oracleRateWithoutFee * (feeNum + feeDenom) / feeDenom
+       |
        |  val lpReservesX = lpBox.value
        |  val lpReservesY = lpBox.tokens(2)._2 // dexyReserves
        |  val lpRate = lpReservesX / lpReservesY
@@ -225,15 +262,52 @@ object DexyContracts {
        |    //   R4: Rate in units of X per unit of Y
        |    //   Token(0): OP NFT to uniquely identify Oracle Pool
        |
+       |    // LP box will be spent as follows
+       |    //   Intervention
+       |    //   Input         |  Output        |   Data-Input
+       |    // -----------------------------------------------
+       |    // 0 LP            |  LP            |   Oracle
+       |    // 1 Bank          |  Bank          |
+       |    // 2 Intervention  |  Intervention  |
+       |    // 3 Tracking Box  |  Tracking Box  |
+       |
+       |    //   Swap
+       |    //   Input         |  Output        |   Data-Input
+       |    // -----------------------------------------------
+       |    // 0 LP            |  LP            |   Oracle
+       |    // 1 Tracking Box  |  Tracking Box  |
+       |
+       |    //   Redeem LP tokens
+       |    //   Input         |  Output        |   Data-Input
+       |    // -----------------------------------------------
+       |    // 0 LP            |  LP            |   Oracle
+       |    // 1 Tracking Box  |  Tracking Box  |
+       |
+       |    //   Mint LP tokens
+       |    //   Input         |  Output        |   Data-Input
+       |    // -----------------------------------------------
+       |    // 0 LP            |  LP            |   Oracle
+       |    // 1 Tracking Box  |  Tracking Box  |
+       |
+       |    val selfOutIndex = 0
+       |    val oracleBoxIndex = 0
+       |    val trackingBoxInIndex = getVar[Int](0).get
+       |
+       |    val trackingBox = INPUTS(trackingBoxInIndex)
+       |
        |    // constants
-       |    val threshold = 3 // error threshold in crossTrackerLow
-       |    val feeNum = 3 // 0.3 %
+       |    val feeNum = 3 // 0.3 % if feeDenom is 1000
        |    val feeDenom = 1000
+       |
+       |    // the value feeNum / feeDenom is the fraction of fee
+       |    // for example if feeNum = 3 and feeDenom = 1000 then fee is 0.003 = 0.3%
+       |
        |    val minStorageRent = 10000000L  // this many number of nanoErgs are going to be permanently locked
        |
-       |    val successor = OUTPUTS(0) // copy of this box after exchange
-       |    val oracleBox = CONTEXT.dataInputs(0) // oracle pool box
+       |    val successor = OUTPUTS(selfOutIndex) // copy of this box after exchange
+       |    val oracleBox = CONTEXT.dataInputs(oracleBoxIndex) // oracle pool box
        |    val validOraclePoolBox = oracleBox.tokens(0)._1 == oracleNFTId // to identify oracle pool box
+       |    val validTrackingBox = trackingBox.tokens(0)._1 == trackingNFTId // to identify tracking box
        |
        |    val lpNFT0    = SELF.tokens(0)
        |    val reservedLP0 = SELF.tokens(1)
@@ -248,8 +322,8 @@ object DexyContracts {
        |
        |    val validSuccessorScript = successor.propositionBytes == SELF.propositionBytes
        |
-       |    val preservedLpNFT     = lpNFT1 == lpNFT0
-       |    val validLpBox              = reservedLP1._1 == reservedLP0._1
+       |    val preservedLpNFT       = lpNFT1 == lpNFT0
+       |    val validLpBox           = reservedLP1._1 == reservedLP0._1
        |    val validY               = tokenY1._1 == tokenY0._1
        |    val validSupplyLP1       = supplyLP1 >= 0
        |
@@ -265,29 +339,6 @@ object DexyContracts {
        |
        |    val oracleRateXY = oracleBox.R4[Long].get
        |    val lpRateXY0 = reservesX0 / reservesY0  // we can assume that reservesY0 > 0 (since at least one token must exist)
-       |    val lpRateXY1 = reservesX1 / reservesY1  // we can assume that reservesY1 > 0 (since at least one token must exist)
-       |    val isCrossing = (lpRateXY0 - oracleRateXY) * (lpRateXY1 - oracleRateXY) < 0 // if (and only if) oracle pool rate falls in between, then this will be negative
-       |
-       |    val crossTrackerLowIn = SELF.R5[Int].get
-       |    val crossTrackerLowOut = successor.R5[Int].get
-       |
-       |    val crossTrackerHighIn = SELF.R6[Int].get
-       |    val crossTrackerHighOut = successor.R6[Int].get
-       |
-       |    val validCrossCounter = {
-       |      if (isCrossing) {
-       |        if (lpRateXY1 > oracleRateXY) {
-       |          crossTrackerLowOut >= HEIGHT - threshold &&
-       |          crossTrackerHighOut == ${Long.MaxValue}L
-       |        } else {
-       |          crossTrackerHighOut >= HEIGHT - threshold &&
-       |          crossTrackerLowOut == ${Long.MaxValue}L
-       |        }
-       |      } else {
-       |        crossTrackerLowOut == crossTrackerLowIn &&
-       |        crossTrackerHighOut == crossTrackerHighIn
-       |      }
-       |    }
        |
        |    val validRateForRedeemingLP = oracleRateXY > lpRateXY0 * 98 / 100 // lpRate must be >= 0.98 * oracleRate // these parameters need to be tweaked
        |    // Do we need above if we also have the tracking contract?
@@ -325,22 +376,100 @@ object DexyContracts {
        |            else validRedemption
        |
        |    sigmaProp(
-       |        validSupplyLP1 &&
+       |        validSupplyLP1       &&
        |        validSuccessorScript &&
-       |        validOraclePoolBox &&
-       |        preservedLpNFT &&
-       |        validLpBox &&
-       |        validY &&
-       |        noMoreTokens &&
-       |        validAction &&
-       |        validStorageRent &&
-       |        validCrossCounter
+       |        validOraclePoolBox   &&
+       |        validTrackingBox     &&
+       |        preservedLpNFT       &&
+       |        validLpBox           &&
+       |        validY               &&
+       |        noMoreTokens         &&
+       |        validAction          &&
+       |        validStorageRent
        |    )
+       |}
+       |""".stripMargin
+
+  private lazy val trackingScript =
+    s"""{
+       |    val threshold = 3 // error threshold in crossTrackerLow
+       |
+       |    val oracleBoxIndex = 0
+       |    val lpBoxInIndex = 0
+       |    val lpBoxOutIndex = 0
+       |    val selfOutIndex = getVar[Int](0).get
+       |
+       |    val lpBoxIn = INPUTS(lpBoxInIndex)
+       |    val lpBoxOut = OUTPUTS(lpBoxOutIndex)
+       |    val oracleBox = CONTEXT.dataInputs(oracleBoxIndex)
+       |    val successor = OUTPUTS(selfOutIndex)
+       |
+       |    val tokenY0     = lpBoxIn.tokens(2)
+       |    val tokenY1     = lpBoxOut.tokens(2)
+       |
+       |    val oracleRateXY = oracleBox.R4[Long].get
+       |
+       |    val reservesX0 = lpBoxIn.value
+       |    val reservesY0 = tokenY0._2
+       |    val reservesX1 = lpBoxOut.value
+       |    val reservesY1 = tokenY1._2
+       |    val lpRateXY0 = reservesX0 / reservesY0  // we can assume that reservesY0 > 0 (since at least one token must exist)
+       |    val lpRateXY1 = reservesX1 / reservesY1  // we can assume that reservesY1 > 0 (since at least one token must exist)
+       |    val isCrossing = (lpRateXY0 - oracleRateXY) * (lpRateXY1 - oracleRateXY) < 0 // if (and only if) oracle pool rate falls in between, then this will be negative
+       |
+       |    // cross tracking start
+       |    val crossTrackerLowIn = lpBoxIn.R5[Int].get // ToDo: move to this box from LP box
+       |    val crossTrackerLowOut = lpBoxOut.R5[Int].get // ToDo: move to this box from LP box
+       |
+       |    val crossTrackerHighIn = lpBoxIn.R6[Int].get // ToDo: move to this box from LP box
+       |    val crossTrackerHighOut = lpBoxOut.R6[Int].get // ToDo: move to this box from LP box
+       |
+       |    // ToDo: add custom tracker logic
+       |
+       |    val validCrossCounter = {
+       |      if (isCrossing) {
+       |        if (lpRateXY1 > oracleRateXY) {
+       |          crossTrackerLowOut >= HEIGHT - threshold &&
+       |          crossTrackerHighOut == ${Long.MaxValue}L
+       |        } else {
+       |          crossTrackerHighOut >= HEIGHT - threshold &&
+       |          crossTrackerLowOut == ${Long.MaxValue}L
+       |        }
+       |      } else {
+       |        crossTrackerLowOut == crossTrackerLowIn &&
+       |        crossTrackerHighOut == crossTrackerHighIn
+       |      }
+       |    }
+       |    // cross tracking end
+       |
+       |    val validLp = lpBoxIn.tokens(0)._1 == lpNFTId // to identify LP box
+       |    // this box can only be spent with LP and similarly LP can only be spent with this box.
+       |
+       |    val validOraclePoolBox = oracleBox.tokens(0)._1 == oracleNFTId // to identify oracle pool box
+       |    val validSuccessor = successor.tokens == SELF.tokens && successor.propositionBytes == SELF.propositionBytes && SELF.value <= successor.value
+       |
+       |    sigmaProp(validSuccessor && validLp && validCrossCounter && validOraclePoolBox) // probably validOraclePoolBox is not needed as its already in LP
        |}
        |""".stripMargin
 
   private lazy val interventionScript =
     s"""{
+       |
+       |  // Intervention box will be spent as follows
+       |  //   Intervention
+       |  //   Input         |  Output        |   Data-Input
+       |  // -----------------------------------------------
+       |  // 0 LP            |  LP            |   Oracle
+       |  // 1 Bank          |  Bank          |
+       |  // 2 Intervention  |  Intervention  |
+       |
+       |  val lpInIndex = 0
+       |  val lpOutIndex = 0
+       |  val bankInIndex = 1
+       |  val bankOutIndex = 1
+       |  val selfOutIndex = 2    // SELF should be third input
+       |  val oracleBoxIndex = 0
+       |
        |  val lastIntervention = SELF.creationInfo._1
        |  val buffer = 3 // error margin in height
        |  val T = 100 // from paper, gap between two interventions
@@ -351,15 +480,15 @@ object DexyContracts {
        |
        |  val thresholdPercent = 98 // 98% or less value (of LP in terms of OraclePool) will trigger action (ensure less than 100)
        |
-       |  val oracleBox = CONTEXT.dataInputs(0)
+       |  val oracleBox = CONTEXT.dataInputs(oracleBoxIndex)
        |
-       |  val lpBoxIn = INPUTS(0)
-       |  val bankBoxIn = INPUTS(1)
+       |  val lpBoxIn = INPUTS(lpInIndex)
+       |  val bankBoxIn = INPUTS(bankInIndex)
        |
-       |  val lpBoxOut = OUTPUTS(0)
-       |  val bankBoxOut = OUTPUTS(1)
+       |  val lpBoxOut = OUTPUTS(lpOutIndex)
+       |  val bankBoxOut = OUTPUTS(bankOutIndex)
        |
-       |  val successor = OUTPUTS(2) // SELF should be INPUTS(2)
+       |  val successor = OUTPUTS(selfOutIndex)
        |
        |  val tokenYIn    = lpBoxIn.tokens(2)
        |  val tokenYOut    = lpBoxOut.tokens(2)
@@ -380,13 +509,14 @@ object DexyContracts {
        |  val validOraclePoolBox = oracleBox.tokens(0)._1 == oracleNFT
        |  val validLpBox = lpBoxIn.tokens(0)._1 == lpNFT
        |
-       |  val validSuccessor = successor.propositionBytes == SELF.propositionBytes &&
-       |                       successor.tokens == SELF.tokens &&
-       |                       successor.value == SELF.value &&
+       |  val validSuccessor = successor.propositionBytes == SELF.propositionBytes  &&
+       |                       successor.tokens == SELF.tokens                      &&
+       |                       successor.value == SELF.value                        &&
        |                       successor.creationInfo._1 >= HEIGHT - buffer
        |
        |  val validBankBoxIn = bankBoxIn.tokens(0)._1 == bankNFT
-       |  val validBankBoxOut = bankBoxOut.tokens(0) == bankBoxIn.tokens(0) &&
+       |
+       |  val validBankBoxOut = bankBoxOut.tokens(0) == bankBoxIn.tokens(0)        &&
        |                        bankBoxOut.tokens(1)._1 == bankBoxIn.tokens(1)._1
        |
        |  val validGap = lastIntervention < HEIGHT - T
@@ -400,17 +530,17 @@ object DexyContracts {
        |
        |  val lpRateXYOutTimes100 = lpRateXYOut * 100
        |
-       |  val validSwap = lpRateXYOutTimes100 >= oracleRateXY * 105 && // new rate must be >= 1.05 times oracle rate
-       |                  lpRateXYOutTimes100 <= oracleRateXY * 110 && // new rate must be <= 1.1 times oracle rate
-       |                  deltaBankErgs <= deltaLpX && // ergs reduced in bank box must be <= ergs gained in LP
-       |                  deltaBankTokens >= deltaLpY && // tokens gained in bank box must be >= tokens reduced in LP
-       |                  validBankBoxIn &&
-       |                  validBankBoxOut &&
-       |                  validSuccessor &&
-       |                  validLpBox &&
-       |                  validOraclePoolBox &&
-       |                  validThreshold &&
-       |                  validLpIn &&
+       |  val validSwap = lpRateXYOutTimes100 >= oracleRateXY * 105   && // new rate must be >= 1.05 times oracle rate
+       |                  lpRateXYOutTimes100 <= oracleRateXY * 110   && // new rate must be <= 1.1 times oracle rate
+       |                  deltaBankErgs <= deltaLpX                   && // ergs reduced in bank box must be <= ergs gained in LP
+       |                  deltaBankTokens >= deltaLpY                 && // tokens gained in bank box must be >= tokens reduced in LP
+       |                  validBankBoxIn                              &&
+       |                  validBankBoxOut                             &&
+       |                  validSuccessor                              &&
+       |                  validLpBox                                  &&
+       |                  validOraclePoolBox                          &&
+       |                  validThreshold                              &&
+       |                  validLpIn                                   &&
        |                  validGap
        |
        |  sigmaProp(validSwap)
@@ -454,11 +584,22 @@ object DexyContracts {
     val lpCon: ErgoContract = ctx.compileContract(
       ConstantsBuilder.create()
         .item("oracleNFTId", ErgoId.create(DexyToken.oracleNFT).getBytes)
+        .item("trackingNFTId", ErgoId.create(DexyToken.trackingNFT).getBytes)
         .build(),
       lpScript
     )
     lazy val lpErgoTree: ErgoTree = lpCon.getErgoTree
     lazy val lpAddress: ErgoAddress = Configuration.addressEncoder.fromProposition(lpErgoTree).get
+
+    val trackingCon: ErgoContract = ctx.compileContract(
+      ConstantsBuilder.create()
+        .item("oracleNFTId", ErgoId.create(DexyToken.oracleNFT).getBytes)
+        .item("lpNFTId", ErgoId.create(DexyToken.lpNFT).getBytes)
+        .build(),
+      trackingScript
+    )
+    lazy val trackingErgoTree: ErgoTree = trackingCon.getErgoTree
+    lazy val trackingAddress: ErgoAddress = Configuration.addressEncoder.fromProposition(trackingErgoTree).get
 
     val interventionCon: ErgoContract = ctx.compileContract(
       ConstantsBuilder.create()
@@ -471,7 +612,7 @@ object DexyContracts {
     lazy val interventionErgoTree: ErgoTree = interventionCon.getErgoTree
     lazy val interventionAddress: ErgoAddress = Configuration.addressEncoder.fromProposition(interventionErgoTree).get
 
-    dexyAddresses = DexyAddresses(bankAddress, arbitrageMintAddress, freeMintAddress, lpAddress, interventionAddress)
+    dexyAddresses = DexyAddresses(bankAddress, arbitrageMintAddress, freeMintAddress, lpAddress, trackingAddress, interventionAddress)
   })
 
 }

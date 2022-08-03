@@ -36,10 +36,12 @@ object ContractTesting {
   def freeMint(ctx: BlockchainContext): Unit = {
 
     val ORACLE_ERG_USD_PRICE = 584663187L
-    val RESET_HEIGHT: Int = 800000
+    val RESET_HEIGHT: Int = 9000000
     val REMAINING_DEXY_USD: Long = 1e15.toLong
     val WANT_DEXY = 2000L
-    val NEEDED_ERG: Long = WANT_DEXY*ORACLE_ERG_USD_PRICE
+    val feeNum = 10
+    val feeDenom = 1000
+    val NEEDED_ERG = WANT_DEXY * ORACLE_ERG_USD_PRICE * (feeNum + feeDenom) / feeDenom
     val DEXY_RESERVES = 18508L
     val USER_FOUND: Long = 4000e9.toLong
     val BASE_FREE_MINT_VALUE: Long = 2e9.toLong
@@ -108,12 +110,12 @@ object ContractTesting {
       .build()
 
     val tx = tb.boxesToSpend(Seq(
-      bankBox.withContextVars(ContextVar.of(0.toByte, 0)),
-      freeMintBox.withContextVars(ContextVar.of(0.toByte, 1), ContextVar.of(1.toByte, 0)),
+      freeMintBox,
+      bankBox,
       userInBox
     ).asJava)
       .fee(FEE)
-      .outputs(newBankBox, newFreeMintBox, userOutBox)
+      .outputs(newFreeMintBox, newBankBox, userOutBox)
       .withDataInputs(List(oracleBox, lpBox).asJava)
       .sendChangeTo(Address.create("4MQyML64GnzMxZgm").getErgoAddress)
       .build()
