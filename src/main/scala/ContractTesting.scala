@@ -1,7 +1,11 @@
 import Configuration.{FEE, ergoClient}
 import DexyContracts.dexyAddresses
-import org.ergoplatform.appkit.{Address, BlockchainContext, ContextVar, ErgoToken, ErgoValue, SignedTransaction}
+import org.ergoplatform.appkit.{Address, BlockchainContext, ErgoToken, ErgoValue, JavaHelpers, SignedTransaction}
 import org.ergoplatform.appkit.impl.ErgoTreeContract
+
+import java.math.BigInteger
+import scorex.util.encode.Base16
+import sigmastate.basics.DLogProtocol.DLogProverInput
 
 import scala.collection.JavaConverters._
 
@@ -22,6 +26,26 @@ object ContractTesting {
   def main(args: Array[String]): Unit = {
     testMint()
   }
+
+  /**
+   * Generate a secure random bigint
+   * @return BigInt
+   */
+  def randBigInt: BigInt = {
+    val secureRandom = new java.security.SecureRandom
+    new BigInteger(256, secureRandom)
+  }
+
+  def toHexString(array: Array[Byte]): String = Base16.encode(array)
+
+  def getAddressFromSk(sk: BigInteger) = new Address(JavaHelpers.createP2PKAddress(DLogProverInput(sk).publicImage, Configuration.addressEncoder.networkPrefix))
+
+  def getPkFromSk(sk: String): (Address, String, Array[Byte]) = {
+    val skBig = BigInt(sk, 16)
+    val address: Address = getAddressFromSk(skBig.bigInteger)
+    (address, address.toString, address.getPublicKey.pkBytes)
+  }
+
 
   def testMint(): Unit = {
     // ALL TX AND TOKEN IDs ARE FAKE
