@@ -297,7 +297,7 @@ object DexyContracts {
            |  val validSuccessorR4 = successorR4 == (if (isCounterReset) HEIGHT + t_free else selfInR4)
            |  val validSuccessorR5 = successorR5 == availableToMint - dexyMinted
            |
-           |  val validBankBoxInOut = bankBoxIn.tokens(0)._1 == bankNFT && bankBoxOut.tokens(0)._1 == bankNFT
+           |  val validBankBoxInOut = bankBoxIn.tokens(0)._1 == bankNFT
            |  val validLpBox = lpBox.tokens(0)._1 == lpNFT
            |  val validOracleBox = oracleBox.tokens(0)._1 == oracleNFT
            |  val validSuccessor = successor.tokens == SELF.tokens                     && // NFT preserved
@@ -381,7 +381,10 @@ object DexyContracts {
            |
            |  val dexyInCirculation = ${initialDexyTokens}L - bankDexy
            |
-           |  // referring to the section "4 Worst Scenario and Bank Reserves" in paper, the following notation is used
+           |  // We have the parameter payoutThreshold for ensuring that the bank has at least that many ergs
+           |  // before payout. However, we need to also ensure that there are enough ergs in the bank to
+           |  // cover the "worst case scenario" described in  section "4 Worst Scenario and Bank Reserves" in paper,
+           |  // The following notation is used
            |  val O = dexyInCirculation // (note: capital o, not zero)
            |  val p = lpRate // initial rate
            |  val s = oracleRate // final lower rate after crash
@@ -708,7 +711,7 @@ object DexyContracts {
            |        val resetNow = trackerHeightOut == ${Int.MaxValue}            // Infinity
            |
            |        val trigger = ((isBelowIn && x < y) || (!isBelowIn && x > y)) && notTriggeredEarlier && triggeredNow
-           |        val reset = (isBelowIn && x >= y) || (!isBelowIn && x <= y) && notResetEarlier && resetNow
+           |        val reset = ((isBelowIn && x >= y) || (!isBelowIn && x <= y)) && notResetEarlier && resetNow
            |        val correctAction = trigger || reset
            |
            |        numOut == numIn          &&
