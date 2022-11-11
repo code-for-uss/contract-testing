@@ -200,7 +200,7 @@ object DexyContracts {
            |  val validSuccessorR4 = successorR4 == (if (isCounterReset) HEIGHT + T_arb else selfInR4)
            |  val validSuccessorR5 = successorR5 == availableToMint - dexyMinted
            |
-           |  val validBankBoxInOut = bankBoxIn.tokens(0)._1 == bankNFT && bankBoxOut.tokens(0)._1 == bankNFT
+           |  val validBankBoxInOut = bankBoxIn.tokens(0)._1 == bankNFT
            |  val validLpBox = lpBox.tokens(0)._1 == lpNFT
            |  val validOracleBox = oracleBox.tokens(0)._1 == oracleNFT
            |  val validSuccessor = successor.tokens == SELF.tokens                     && // NFT preserved
